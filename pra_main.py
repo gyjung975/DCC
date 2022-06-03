@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--latent_dim', type=int, default=100)
     parser.add_argument('--lr_gen', type=float, default=0.0002)
 
-    parser.add_argument('--num_worker', type=int, default=8)
+    parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--method', type=str, default='DC')
     parser.add_argument('--dataset', type=str, default='CIFAR10')
     parser.add_argument('--model', type=str, default='ConvNet')
