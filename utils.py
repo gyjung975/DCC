@@ -295,6 +295,7 @@ def get_loops(ipc):
 def epoch(mode, dataloader, net, optimizer, criterion, args, aug):
     loss_avg, acc_avg, num_exp = 0, 0, 0
     net = net.to(args.device)
+    net = nn.DataParallel(net)
     criterion = criterion.to(args.device)
 
     if mode == 'train':
