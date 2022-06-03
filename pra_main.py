@@ -359,7 +359,12 @@ def main():
 
     for key in model_eval_pool:
         accs = accs_all_exps[key]
-        # print('Run %d experiments, train on %s, evaluate %d random %s, mean  = %.2f%%  std = %.2f%%' % (args.num_exp, args.model, len(accs), key, np.mean(accs)*100, np.std(accs)*100))
+        print('Run %d experiments, train on %s, evaluate %d random %s, mean  = %.2f%%  std = %.2f%%' % (args.num_exp,
+                                                                                                        args.model,
+                                                                                                        len(accs),
+                                                                                                        key,
+                                                                                                        np.mean(accs) * 100,
+                                                                                                        np.std(accs) * 100))
 
 
 if __name__ == '__main__':
