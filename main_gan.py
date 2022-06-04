@@ -106,22 +106,22 @@ def main():
                                                                        torch.std(images_all[:, ch])))
 
         ''' initialize the synthetic data  -->  latent vector '''
-        # image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
-        #                         dtype=torch.float, requires_grad=True, device=args.device)
-        ## label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
-        ##                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
-        # label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
+        image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
+                                dtype=torch.float, requires_grad=True, device=args.device)
+        # label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
         #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
+        label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
+                                 dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         ## [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
 
         ######################################################################################
-        image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                                dtype=torch.float, requires_grad=False, device=args.device)
-        label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
-                                 dtype=torch.long, requires_grad=False, device=args.device).view(-1)
-
-        generator = Generator(args).to(args.device)
-        optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
+        # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+        #                         dtype=torch.float, requires_grad=False, device=args.device)
+        # label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
+        #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
+        #
+        # generator = Generator(args).to(args.device)
+        # optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
         ######################################################################################
 
         if args.init == 'real':
@@ -132,8 +132,8 @@ def main():
             print('initialize synthetic data from random noise')
 
         ''' training '''
-        # optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
-        # optimizer_img.zero_grad()
+        optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
+        optimizer_img.zero_grad()
 
         criterion = nn.CrossEntropyLoss().to(args.device)
         print('%s training begins' % get_time())
@@ -159,14 +159,14 @@ def main():
                     for it_eval in range(args.num_eval):
                         net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
 
-                        # image_syn_eval = copy.deepcopy(image_syn.detach())
-                        # label_syn_eval = copy.deepcopy(label_syn.detach())
+                        image_syn_eval = copy.deepcopy(image_syn.detach())
+                        label_syn_eval = copy.deepcopy(label_syn.detach())
 
                         ###############################################
-                        generator.eval()
-                        with torch.no_grad():
-                            image_syn_eval = generator(image_syn)
-                            label_syn_eval = copy.deepcopy(label_syn)
+                        # generator.eval()
+                        # with torch.no_grad():
+                        #     image_syn_eval = generator(image_syn)
+                        #     label_syn_eval = copy.deepcopy(label_syn)
                         ###############################################
 
                         _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
@@ -213,7 +213,7 @@ def main():
             # model.train()
             # optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
 
-            generator.train()
+            # generator.train()
             #######################################################################
 
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
@@ -257,13 +257,13 @@ def main():
                     lab_real = torch.ones((img_real.shape[0],), device=args.device, dtype=torch.long) * c
 
                     ##################################################################################################
-                    gen_image_syn = generator(image_syn)
-                    img_syn = gen_image_syn[c * args.ipc:(c + 1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
-                    lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
+                    # gen_image_syn = generator(image_syn)
+                    # img_syn = gen_image_syn[c * args.ipc:(c + 1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
+                    # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
                     ##################################################################################################
 
-                    # img_syn = image_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
-                    # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
+                    img_syn = image_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
+                    lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
 
@@ -271,10 +271,10 @@ def main():
                     # output_real = model(img_real)
                     ##############################
 
-                    # loss_real = criterion(output_real, lab_real)
+                    loss_real = criterion(output_real, lab_real)
 
-                    # gw_real = torch.autograd.grad(loss_real, net_parameters)
-                    # gw_real = list((_.detach().clone() for _ in gw_real))
+                    gw_real = torch.autograd.grad(loss_real, net_parameters)
+                    gw_real = list((_.detach().clone() for _ in gw_real))
 
                     output_syn = net(img_syn)
 
@@ -282,31 +282,31 @@ def main():
                     # output_syn = model(img_syn)
                     ############################
 
-                    # loss_syn = criterion(output_syn, lab_syn)
+                    loss_syn = criterion(output_syn, lab_syn)
 
                     ###################################################
                     # loss_sim = torch.multiply(output_syn, output_real).sum()
-                    sm = nn.Softmax(dim=1)
-                    loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
-                    loss_syn = criterion(output_syn, lab_syn)
+                    # sm = nn.Softmax(dim=1)
+                    # loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
+                    # loss_syn = criterion(output_syn, lab_syn)
                     ###################################################
 
-                    # gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
+                    gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
 
-                    # loss += match_loss(gw_syn, gw_real, args)
+                    loss += match_loss(gw_syn, gw_real, args)
 
                     #############################
-                    loss += -loss_sim + loss_syn
+                    # loss += -loss_sim + loss_syn
                     #############################
 
-                # optimizer_img.zero_grad()
-                # loss.backward()
-                # optimizer_img.step()
+                optimizer_img.zero_grad()
+                loss.backward()
+                optimizer_img.step()
 
                 ##########################
-                optimizer_gen.zero_grad()
-                loss.backward()
-                optimizer_gen.step()
+                # optimizer_gen.zero_grad()
+                # loss.backward()
+                # optimizer_gen.step()
                 ###########################
 
                 loss_avg += loss.item()
@@ -315,12 +315,12 @@ def main():
                     break
 
                 ''' update network '''
-                # image_syn_train = copy.deepcopy(image_syn.detach())
-                # label_syn_train = copy.deepcopy(label_syn.detach()) 
+                image_syn_train = copy.deepcopy(image_syn.detach())
+                label_syn_train = copy.deepcopy(label_syn.detach())
 
                 #############################################
-                image_syn_train = generator(image_syn)
-                label_syn_train = copy.deepcopy(label_syn)
+                # image_syn_train = generator(image_syn)
+                # label_syn_train = copy.deepcopy(label_syn)
                 #############################################
 
                 dst_syn_train = TensorDataset(image_syn_train, label_syn_train)
@@ -345,7 +345,7 @@ def main():
                            os.path.join(args.model_path, 'model.pt'))
 
                 #####################################################################################
-                torch.save(generator.state_dict(), os.path.join(args.model_path, 'generator.t7'))
+                # torch.save(generator.state_dict(), os.path.join(args.model_path, 'generator.t7'))
                 ######################################################################################
 
     print('\n==================== Final Results ====================\n')

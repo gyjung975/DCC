@@ -17,35 +17,33 @@ import torchvision.models as models
 def main():
     parser = argparse.ArgumentParser(description='Parameter Processing')
     parser.add_argument('--latent_dim', type=int, default=100)
+    parser.add_argument('--latent_channel', type=int, default=1)
+    parser.add_argument('--latent_size', type=int, default=28)
     parser.add_argument('--lr_gen', type=float, default=0.0002)
+    parser.add_argument('--lr_model', type=float, default=0.01)
 
-    parser.add_argument('--num_worker', type=int, default=0)
-    parser.add_argument('--method', type=str, default='DC')
-    parser.add_argument('--dataset', type=str, default='CIFAR10')
+    parser.add_argument('--dataset', type=str, default='MNIST')
     parser.add_argument('--model', type=str, default='ConvNet')
+    # parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
     parser.add_argument('--ipc', type=int, default=1, help='image(s) per class')
+    parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
+    parser.add_argument('--num_eval', type=int, default=20, help='the number of evaluating randomly initialized models')
+    parser.add_argument('--Iteration', type=int, default=1000, help='training iterations; 하나의 synthetic data *번 update')
+    parser.add_argument('--batch_train', type=int, default=256, help='batch size for training networks')
+    parser.add_argument('--epoch_eval_train', type=int, default=300,
+                        help='num_eval 마다의 train epoch')
     parser.add_argument('--eval_mode', type=str, default='S', help='eval_mode')
     # S: the same to training model, M: multi architectures,  W: net width, D: net depth,
     # A: activation function, P: pooling layer, N: normalization layer,
-    parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
-    parser.add_argument('--num_eval', type=int, default=20,
-                        help='the number of evaluating randomly initialized models')
-    parser.add_argument('--epoch_eval_train', type=int, default=300,
-                        help='num_eval 마다의 train epoch')
-    parser.add_argument('--Iteration', type=int, default=1000, help='training iterations; 하나의 synthetic data *번 update')
     parser.add_argument('--lr_img', type=float, default=0.1,
                         help='learning rate for updating synthetic images')
     parser.add_argument('--lr_net', type=float, default=0.01,
                         help='learning rate for updating network parameters')
-    parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
-    parser.add_argument('--batch_train', type=int, default=256, help='batch size for training networks')
-    parser.add_argument('--init', type=str, default='noise',
-                        help='noise/real: initialize synthetic images from random noise or randomly sampled real images.')
     parser.add_argument('--data_path', type=str, default='data', help='dataset path')
     parser.add_argument('--save_path', type=str, default='result', help='path to save results')
-    parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
 
-    parser.add_argument('--dsa_strategy', type=str, default='None', help='differentiable Siamese augmentation strategy')
+    parser.add_argument('--num_worker', type=int, default=0)
+    parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
     args = parser.parse_args()
 
     args.outer_loop, args.inner_loop = get_loops(args.ipc)
@@ -58,15 +56,15 @@ def main():
     if not os.path.exists(args.save_path):
         os.mkdir(args.save_path)
 
-    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' else [args.Iteration]
-    # The list of iterations when we evaluate models and record results.
+    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
     print('eval_it_pool: ', eval_it_pool)
 
     channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.dataset,
                                                                                                          args.data_path,
                                                                                                          args)
+    args.batch_real = args.ipc
+
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
-    # synthetic data로 train하고 eval할 model
 
     accs_all_exps = dict()
     for key in model_eval_pool:
@@ -80,12 +78,8 @@ def main():
         print('Evaluation model pool: ', model_eval_pool)
 
         ''' organize the real dataset '''
-        # images_all = []
-        # labels_all = []
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
-        # len(images_all) = 60,000 / [[1, 1, 28, 28], [1, 1, 28, 28], ..., [1, 1, 28, 28]]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
-        # len(labels_all) = 60,000 / ['class', 'class', ..., 'class']
 
         images_all = torch.cat(images_all, dim=0).to(args.device)                       # [60000, 1, 28, 28]
         labels_all = torch.tensor(labels_all, dtype=torch.long, device=args.device)     # [60000]
@@ -107,37 +101,31 @@ def main():
                                                                        torch.std(images_all[:, ch])))
 
         ''' initialize the synthetic data  -->  latent vector '''
-        image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
-                                dtype=torch.float, requires_grad=True, device=args.device)
-        # [num_class * ipc, channel, H, W]
-        # label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
+        # image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
+        #                         dtype=torch.float, requires_grad=True, device=args.device)
+        # label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
         #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
-        label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
-                                 dtype=torch.long, requires_grad=False, device=args.device).view(-1)
-        # [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
+        ## [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
 
         ######################################################################################
         # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
         #                         dtype=torch.float, requires_grad=False, device=args.device)
-        # label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
-        #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
+        label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
+                                 dtype=torch.long, requires_grad=False, device=args.device).view(-1)
 
-        # generator = Generator(args).to(args.device)
-        # optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
+        generator = Generator(args).to(args.device)
+        optimizer_gen = torch.optim.Adam(generator.parameters(), lr=args.lr_gen, weight_decay=0.2)
+        optimizer_gen.zero_grad()
         ######################################################################################
 
-        if args.init == 'real':
-            print('initialize synthetic data from random real images')
-            for c in range(num_classes):
-                image_syn.data[c * args.ipc:(c+1) * args.ipc] = get_images(c, args.ipc).detach().data
-        else:
-            print('initialize synthetic data from random noise')
+        print('initialize synthetic data from random noise')
 
         ''' training '''
-        optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
-        optimizer_img.zero_grad()
+        # optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
+        # optimizer_img.zero_grad()
 
         criterion = nn.CrossEntropyLoss().to(args.device)
+        criterion_mse = nn.MSELoss().to(args.device)
         print('%s training begins' % get_time())
 
         for it in range(args.Iteration+1):
@@ -153,7 +141,8 @@ def main():
                     print('DC augmentation parameters: \n', args.dc_aug_param)
 
                     if args.dc_aug_param['strategy'] != 'none':
-                        args.epoch_eval_train = 1000  # Training with data augmentation needs more epochs.
+                        # args.epoch_eval_train = 1000
+                        args.epoch_eval_train = 1
                     else:
                         args.epoch_eval_train = 300
 
@@ -161,15 +150,19 @@ def main():
                     for it_eval in range(args.num_eval):
                         net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
 
-                        image_syn_eval = copy.deepcopy(image_syn.detach())
-                        label_syn_eval = copy.deepcopy(label_syn.detach())
+                        # image_syn_eval = copy.deepcopy(image_syn.detach())
+                        # label_syn_eval = copy.deepcopy(label_syn.detach())
 
-                        ###############################################
-                        # generator.eval()
-                        # with torch.no_grad():
-                        #     image_syn_eval = generator(image_syn)
-                        #     label_syn_eval = copy.deepcopy(label_syn)
-                        ###############################################
+                        #######################################################
+                        image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                                dtype=torch.float, requires_grad=False, device=args.device)
+
+                        generator.eval()
+                        gen_image_syn = generator(image_syn)
+
+                        image_syn_eval = copy.deepcopy(gen_image_syn.detach())
+                        label_syn_eval = copy.deepcopy(label_syn.detach())
+                        #######################################################
 
                         _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
                                                                  testloader, args)
@@ -185,17 +178,17 @@ def main():
                         accs_all_exps[model_eval] += accs
 
                 ''' visualize and save '''
-                args.model_path = os.path.join(args.save_path, '%s_%s_%dipc_%dexp_%diter' % (args.dataset,
-                                                                                             args.model,
-                                                                                             args.ipc,
-                                                                                             args.num_exp,
-                                                                                             args.Iteration))
+                args.model_path = os.path.join(args.save_path, 'GAN_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
+                                                                                                 args.model,
+                                                                                                 args.ipc,
+                                                                                                 args.num_exp,
+                                                                                                 args.Iteration))
                 if not os.path.exists(args.model_path):
                     os.mkdir(args.model_path)
 
                 save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (exp, it))
 
-                image_syn_vis = copy.deepcopy(image_syn.detach().cpu())     # [num_class * ipc, channel, H, W]
+                image_syn_vis = copy.deepcopy(gen_image_syn.detach().cpu())     # [num_class * ipc, channel, H, W]
 
                 for ch in range(channel):
                     image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
@@ -203,7 +196,6 @@ def main():
                 image_syn_vis[image_syn_vis < 0] = 0.0
                 image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
-                # [num_class * ipc, channel, H, W]
                 # Trying normalize = True/False may get better visual effects.
 
             ''' Train synthetic data  -->  Generator'''
@@ -212,11 +204,11 @@ def main():
             # num_features = model.fc.in_features
             # model.fc = nn.Linear(num_features, num_classes)
             # model = model.to(args.device)
-
+            #
             # model.train()
-            # optimizer_model = torch.optim.SGD(model.parameter(), lr=args.lr_model)
+            # optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
 
-            # generator.train()
+            generator.train()
             #######################################################################
 
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
@@ -228,7 +220,6 @@ def main():
 
             loss_avg = 0
             args.dc_aug_param = None
-            # Mute the DC augmentation when learning synthetic data (in inner-loop epoch function)
 
             for ol in range(args.outer_loop):
                 ''' freeze the running mu and sigma for BatchNorm layers '''
@@ -255,18 +246,24 @@ def main():
                 ''' update synthetic data  -->  Generator '''
                 loss = torch.tensor(0.0).to(args.device)
 
+                ### outer loop 밖?? 안??? ##########################################################
+                image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                        dtype=torch.float, requires_grad=False, device=args.device)
+                gen_image_syn_train = generator(image_syn)
+                ####################################################################################
+
                 for c in range(num_classes):
                     img_real = get_images(c, args.batch_real)
                     lab_real = torch.ones((img_real.shape[0],), device=args.device, dtype=torch.long) * c
 
                     ##################################################################################################
-                    # gen_img_syn = generator(image_syn)
-                    # img_syn = gen_image_syn[c * args.ipc:(c + 1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
-                    # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
+                    # gen_image_syn = generator(image_syn)
+                    img_syn = gen_image_syn_train[c * args.ipc:(c + 1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
+                    lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
                     ##################################################################################################
 
-                    img_syn = image_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
-                    lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
+                    # img_syn = image_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
+                    # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
 
@@ -276,8 +273,8 @@ def main():
 
                     loss_real = criterion(output_real, lab_real)
 
-                    gw_real = torch.autograd.grad(loss_real, net_parameters)
-                    gw_real = list((_.detach().clone() for _ in gw_real))
+                    # gw_real = torch.autograd.grad(loss_real, net_parameters)
+                    # gw_real = list((_.detach().clone() for _ in gw_real))
 
                     output_syn = net(img_syn)
 
@@ -288,42 +285,44 @@ def main():
                     loss_syn = criterion(output_syn, lab_syn)
 
                     ###################################################
-                    # loss_sim = torch.multiply(output_syn, output_real)
-                    # loss_syn = criterion(output_syn, lab_syn)
+                    # sm = nn.Softmax(dim=1)
+                    # loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
+                    loss_mse = criterion_mse(output_syn, output_real)
+                    loss_syn = criterion(output_syn, lab_syn)
                     ###################################################
 
-                    gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
+                    # gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
 
-                    loss += match_loss(gw_syn, gw_real, args)
+                    # loss += match_loss(gw_syn, gw_real, args)
 
                     #############################
-                    # loss += -loss_sim + loss_syn
+                    loss += loss_mse + loss_syn
                     #############################
 
-                optimizer_img.zero_grad()
-                loss.backward()
-                optimizer_img.step()
+                # optimizer_img.zero_grad()
+                # loss.backward()
+                # optimizer_img.step()
 
                 ##########################
-                # optimizer_gen.zero_grad()
-                # loss.backward()
-                # optimizer_gen.step()
+                optimizer_gen.zero_grad()
+                loss.backward()
+                optimizer_gen.step()
                 ###########################
 
                 loss_avg += loss.item()
 
-                if ol == args.outer_loop - 1:
-                    break
+                # if ol == args.outer_loop - 1:
+                #     break
 
                 ''' update network '''
-                image_syn_train = copy.deepcopy(image_syn.detach())
-                label_syn_train = copy.deepcopy(label_syn.detach())
-
-                print(image_syn_train.shape)
+                # image_syn_train = copy.deepcopy(image_syn.detach())
+                # label_syn_train = copy.deepcopy(label_syn.detach())
 
                 #############################################
-                # image_syn_train = generator(image_syn)
-                # label_syn_train = copy.deepcopy(label_syn)
+                image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                        dtype=torch.float, requires_grad=False, device=args.device)
+                image_syn_train = generator(image_syn).detach()
+                label_syn_train = copy.deepcopy(label_syn.detach())
                 #############################################
 
                 dst_syn_train = TensorDataset(image_syn_train, label_syn_train)
@@ -348,11 +347,7 @@ def main():
                            os.path.join(args.model_path, 'model.pt'))
 
                 #####################################################################################
-                # torch.save(generator.state_dict(),
-                #            os.path.join(args.save_path, 'res_%s_%s_%s_%dipc.t7' % (args.method,
-                #                                                                    args.dataset,
-                #                                                                    args.model,
-                #                                                                    args.ipc)))
+                # torch.save(generator.state_dict(), os.path.join(args.model_path, 'generator.t7'))
                 ######################################################################################
 
     print('\n==================== Final Results ====================\n')
