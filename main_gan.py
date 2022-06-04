@@ -266,7 +266,7 @@ def main():
                     # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
-                    print(output_real.shape)
+
                     ##############################
                     # output_real = model(img_real)
                     ##############################
@@ -277,7 +277,7 @@ def main():
                     # gw_real = list((_.detach().clone() for _ in gw_real))
 
                     output_syn = net(img_syn)
-                    print(output_syn.shape)
+
                     ############################
                     # output_syn = model(img_syn)
                     ############################
