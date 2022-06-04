@@ -117,7 +117,7 @@ def main():
         ######################################################################################
         image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
                                 dtype=torch.float, requires_grad=False, device=args.device)
-        label_syn = torch.tensor(np.array(np.ones(args.ipc) * i for i in range(num_classes)),
+        label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
 
         generator = Generator(args).to(args.device)
