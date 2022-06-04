@@ -10,7 +10,7 @@ from torchvision.utils import save_image
 from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, \
     match_loss, get_time, TensorDataset, epoch
 
-from net_gan import Generator
+from networks import Generator
 import torchvision.models as models
 
 
