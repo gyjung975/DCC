@@ -141,8 +141,8 @@ def main():
                     print('DC augmentation parameters: \n', args.dc_aug_param)
 
                     if args.dc_aug_param['strategy'] != 'none':
-                        # args.epoch_eval_train = 1000
-                        args.epoch_eval_train = 1
+                        args.epoch_eval_train = 1000
+                        # args.epoch_eval_train = 1
                     else:
                         args.epoch_eval_train = 300
 
