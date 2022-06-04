@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description='Parameter Processing')
     parser.add_argument('--latent_dim', type=int, default=100)
     parser.add_argument('--lr_gen', type=float, default=0.0002)
+    parser.add_argument('--lr_model', type=float, default=0.01)
 
     parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--method', type=str, default='DC')
@@ -58,7 +59,7 @@ def main():
     if not os.path.exists(args.save_path):
         os.mkdir(args.save_path)
 
-    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' else [args.Iteration]
+    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
     # The list of iterations when we evaluate models and record results.
     print('eval_it_pool: ', eval_it_pool)
 
@@ -83,9 +84,7 @@ def main():
         # images_all = []
         # labels_all = []
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
-        # len(images_all) = 60,000 / [[1, 1, 28, 28], [1, 1, 28, 28], ..., [1, 1, 28, 28]]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
-        # len(labels_all) = 60,000 / ['class', 'class', ..., 'class']
 
         images_all = torch.cat(images_all, dim=0).to(args.device)                       # [60000, 1, 28, 28]
         labels_all = torch.tensor(labels_all, dtype=torch.long, device=args.device)     # [60000]
@@ -109,7 +108,6 @@ def main():
         ''' initialize the synthetic data  -->  latent vector '''
         image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
                                 dtype=torch.float, requires_grad=True, device=args.device)
-        # [num_class * ipc, channel, H, W]
         # label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
         #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
@@ -203,7 +201,6 @@ def main():
                 image_syn_vis[image_syn_vis < 0] = 0.0
                 image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
-                # [num_class * ipc, channel, H, W]
                 # Trying normalize = True/False may get better visual effects.
 
             ''' Train synthetic data  -->  Generator'''
@@ -289,6 +286,8 @@ def main():
 
                     ###################################################
                     # loss_sim = torch.multiply(output_syn, output_real)
+                    # sm = nn.Softmax(dim=1)
+                    # loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
                     # loss_syn = criterion(output_syn, lab_syn)
                     ###################################################
 
@@ -319,8 +318,6 @@ def main():
                 image_syn_train = copy.deepcopy(image_syn.detach())
                 label_syn_train = copy.deepcopy(label_syn.detach())
 
-                print(image_syn_train.shape)
-
                 #############################################
                 # image_syn_train = generator(image_syn)
                 # label_syn_train = copy.deepcopy(label_syn)
@@ -348,11 +345,7 @@ def main():
                            os.path.join(args.model_path, 'model.pt'))
 
                 #####################################################################################
-                # torch.save(generator.state_dict(),
-                #            os.path.join(args.save_path, 'res_%s_%s_%s_%dipc.t7' % (args.method,
-                #                                                                    args.dataset,
-                #                                                                    args.model,
-                #                                                                    args.ipc)))
+                # torch.save(generator.state_dict(), os.path.join(args.model_path, 'generator.t7'))
                 ######################################################################################
 
     print('\n==================== Final Results ====================\n')

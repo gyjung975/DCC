@@ -59,7 +59,7 @@ def main():
     if not os.path.exists(args.save_path):
         os.mkdir(args.save_path)
 
-    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' else [args.Iteration]
+    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
     # The list of iterations when we evaluate models and record results.
     print('eval_it_pool: ', eval_it_pool)
 
@@ -67,7 +67,7 @@ def main():
                                                                                                          args.data_path,
                                                                                                          args)
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
-    # synthetic data로 train하고 eval할 model
+    # gen synthetic data로 train하고 eval할 model
 
     accs_all_exps = dict()
     for key in model_eval_pool:
@@ -84,9 +84,7 @@ def main():
         # images_all = []
         # labels_all = []
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
-        # len(images_all) = 60,000 / [[1, 1, 28, 28], [1, 1, 28, 28], ..., [1, 1, 28, 28]]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
-        # len(labels_all) = 60,000 / ['class', 'class', ..., 'class']
 
         images_all = torch.cat(images_all, dim=0).to(args.device)                       # [60000, 1, 28, 28]
         labels_all = torch.tensor(labels_all, dtype=torch.long, device=args.device)     # [60000]
@@ -110,7 +108,6 @@ def main():
         ''' initialize the synthetic data  -->  latent vector '''
         # image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
         #                         dtype=torch.float, requires_grad=True, device=args.device)
-        ## [num_class * ipc, channel, H, W]
         ## label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
         ##                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         # label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
@@ -120,7 +117,7 @@ def main():
         ######################################################################################
         image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
                                 dtype=torch.float, requires_grad=False, device=args.device)
-        label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
+        label_syn = torch.tensor(np.array(np.ones(args.ipc) * i for i in range(num_classes)),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
 
         generator = Generator(args).to(args.device)
@@ -135,8 +132,8 @@ def main():
             print('initialize synthetic data from random noise')
 
         ''' training '''
-        optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
-        optimizer_img.zero_grad()
+        # optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
+        # optimizer_img.zero_grad()
 
         criterion = nn.CrossEntropyLoss().to(args.device)
         print('%s training begins' % get_time())
@@ -204,19 +201,17 @@ def main():
                 image_syn_vis[image_syn_vis < 0] = 0.0
                 image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
-                # [num_class * ipc, channel, H, W]
                 # Trying normalize = True/False may get better visual effects.
 
             ''' Train synthetic data  -->  Generator'''
             ######################################################################
-            model = models.resnet34(pretrained=False)
-            num_features = model.fc.in_features
-            model.conv1.in_channels = 1
-            model.fc = nn.Linear(num_features, num_classes)
-            model = model.to(args.device)
-
-            model.train()
-            optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
+            # model = models.resnet34(pretrained=False)
+            # num_features = model.fc.in_features
+            # model.fc = nn.Linear(num_features, num_classes)
+            # model = model.to(args.device)
+            #
+            # model.train()
+            # optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
 
             generator.train()
             #######################################################################
@@ -271,18 +266,18 @@ def main():
                     # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
-
+                    print(output_real.shape)
                     ##############################
                     # output_real = model(img_real)
                     ##############################
 
-                    loss_real = criterion(output_real, lab_real)
+                    # loss_real = criterion(output_real, lab_real)
 
                     # gw_real = torch.autograd.grad(loss_real, net_parameters)
                     # gw_real = list((_.detach().clone() for _ in gw_real))
 
                     output_syn = net(img_syn)
-
+                    print(output_syn.shape)
                     ############################
                     # output_syn = model(img_syn)
                     ############################
@@ -290,7 +285,9 @@ def main():
                     # loss_syn = criterion(output_syn, lab_syn)
 
                     ###################################################
-                    loss_sim = torch.multiply(output_syn, output_real).sum()
+                    # loss_sim = torch.multiply(output_syn, output_real).sum()
+                    sm = nn.Softmax(dim=1)
+                    loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
                     loss_syn = criterion(output_syn, lab_syn)
                     ###################################################
 
