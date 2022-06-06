@@ -24,8 +24,8 @@ parser.add_argument('--dataset', type=str, default='MNIST')
 parser.add_argument('--model', type=str, default='ConvNet')
 parser.add_argument('--ipc', type=int, default=1)
 parser.add_argument('--num_exp', type=int, default=5)
-parser.add_argument('--num_eval', type=int, default=1)
-parser.add_argument('--Iteration', type=int, default=1)
+parser.add_argument('--num_eval', type=int, default=20)
+parser.add_argument('--Iteration', type=int, default=1000)
 parser.add_argument('--batch_train', type=int, default=256)
 parser.add_argument('--epoch_eval_train', type=int, default=300)
 parser.add_argument('--eval_mode', type=str, default='S', help='eval_mode')
@@ -108,35 +108,56 @@ print('%s TRAINING BEGINS' % get_time())
 
 for it in range(args.Iteration):
     if it in eval_it_pool:
-        for model_eval in model_eval_pool:
-            print('------------------------------------------------')
-            print('Evaluation')
-            print('model_train = %s, model_eval = %s, iteration = %d' % (args.model,
-                                                                         model_eval,
-                                                                         it))
-            args.dc_aug_param = get_daparam(args.dataset, args.model, model_eval, args.ipc)
-            print('DC augmentation parameters: \n', args.dc_aug_param)
-
-            accs = []
-            for it_eval in range(args.num_eval):
-                net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
-
-                generator.eval()
-
-                # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                #                             dtype=torch.float, device=args.device)
-                image_syn_eval = generator(latent_vector).detach()
-                label_syn_eval = copy.deepcopy(label_syn.detach())
-
-                _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
-                                                         testloader, args)
-
-                accs.append(acc_test)
-            print('Evaluate %d random %s, mean = %.4f std = %.4f' % (len(accs),
+        # for model_eval in model_eval_pool:
+        model_eval = model_eval_pool[0]
+        print('------------------------------------------------')
+        print('Evaluation')
+        print('model_train = %s, model_eval = %s, iteration = %d' % (args.model,
                                                                      model_eval,
-                                                                     np.mean(accs),
-                                                                     np.std(accs)))
-            print('------------------------------------------------')
+                                                                     it))
+        args.dc_aug_param = get_daparam(args.dataset, args.model, model_eval, args.ipc)
+        print('DC augmentation parameters: \n', args.dc_aug_param)
 
-            if it == args.Iteration:
-                accs_all_exps[model_eval] += accs
+        accs = []
+        # for it_eval in range(args.num_eval):
+        it_eval = 0
+        net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
+
+        generator.eval()
+
+        # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+        #                             dtype=torch.float, device=args.device)
+        image_syn_eval = generator(latent_vector).detach()
+        label_syn_eval = copy.deepcopy(label_syn.detach())
+
+        _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
+                                                 testloader, args)
+
+        accs.append(acc_test)
+        print('Evaluate %d random %s, mean = %.4f std = %.4f' % (len(accs),
+                                                                 model_eval,
+                                                                 np.mean(accs),
+                                                                 np.std(accs)))
+        print('------------------------------------------------')
+
+        if it == args.Iteration:
+            accs_all_exps[model_eval] += accs
+
+        args.model_path = os.path.join(args.save_path, 'GAN_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
+                                                                                         args.model,
+                                                                                         args.ipc,
+                                                                                         args.num_exp,
+                                                                                         args.Iteration))
+        if not os.path.exists(args.model_path):
+            os.mkdir(args.model_path)
+
+        save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (0, it))
+
+        image_syn_vis = copy.deepcopy(gen_image_syn.detach().cpu())
+
+        for ch in range(channel):
+            image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
+
+        image_syn_vis[image_syn_vis < 0] = 0.0
+        image_syn_vis[image_syn_vis > 1] = 1.0
+        save_image(image_syn_vis, save_name, nrow=args.ipc)
