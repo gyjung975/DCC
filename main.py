@@ -16,9 +16,6 @@ import torchvision.models as models
 
 def main():
     parser = argparse.ArgumentParser(description='Parameter Processing')
-    parser.add_argument('--latent_dim', type=int, default=100)
-    parser.add_argument('-lr_gen', type=float, default=0.0002)
-
     parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--method', type=str, default='DC', help='DC/DSA')
     parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset')
@@ -118,12 +115,6 @@ def main():
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         # [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
 
-        ###################################################################################
-        # image_gen_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-        #                         dtype=torch.float, requires_grad=False, device=args.device)
-        # # [num_class * ipc, latent_dim]
-        ###################################################################################
-
         if args.init == 'real':
             print('initialize synthetic data from random real images')
             for c in range(num_classes):
@@ -135,14 +126,6 @@ def main():
         optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
         optimizer_img.zero_grad()
         # optimizer_img for synthetic data
-
-        ######################################################################################
-        # generator = Generator(args).to(args.device)
-        # image_syn = generator(image_gen_syn)
-
-        # optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
-        # optimizer_gen.zero_grad()
-        ######################################################################################
 
         criterion = nn.CrossEntropyLoss().to(args.device)
         print('%s training begins' % get_time())
@@ -224,14 +207,15 @@ def main():
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
             # get a random model
             net.train()
+
             net_parameters = list(net.parameters())
             optimizer_net = torch.optim.SGD(net.parameters(), lr=args.lr_net)
             # optimizer_net for synthetic data
             optimizer_net.zero_grad()
+
             loss_avg = 0
             args.dc_aug_param = None
             # Mute the DC augmentation when learning synthetic data (in inner-loop epoch function) in oder to be consistent with DC paper.
-
 
             for ol in range(args.outer_loop):
                 ''' freeze the running mu and sigma for BatchNorm layers '''
@@ -285,7 +269,6 @@ def main():
                 if ol == args.outer_loop - 1:
                     break
 
-
                 ''' update network '''
                 image_syn_train = copy.deepcopy(image_syn.detach())
                 label_syn_train = copy.deepcopy(label_syn.detach())
@@ -308,9 +291,6 @@ def main():
                 data_save.append([copy.deepcopy(image_syn.detach().cpu()), copy.deepcopy(label_syn.detach().cpu())])
                 torch.save({'data': data_save, 'accs_all_exps': accs_all_exps, },
                            os.path.join(args.model_path, 'model.pt')
-
-                # torch.save({'data': data_save, 'accs_all_exps': accs_all_exps, },
-                #            os.path.join(args.model_path, 'model.pt'))
 
     print('\n==================== Final Results ====================\n')
 

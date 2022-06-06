@@ -17,8 +17,6 @@ import torchvision.models as models
 def main():
     parser = argparse.ArgumentParser(description='Parameter Processing')
     parser.add_argument('--latent_dim', type=int, default=100)
-    parser.add_argument('--latent_channel', type=int, default=1)
-    parser.add_argument('--latent_size', type=int, default=28)
     parser.add_argument('--lr_gen', type=float, default=0.0002)
     parser.add_argument('--lr_model', type=float, default=0.01)
 
@@ -154,10 +152,10 @@ def main():
                         # label_syn_eval = copy.deepcopy(label_syn.detach())
 
                         #######################################################
+                        generator.eval()
                         image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
                                                 dtype=torch.float, requires_grad=False, device=args.device)
 
-                        generator.eval()
                         gen_image_syn = generator(image_syn)
 
                         image_syn_eval = copy.deepcopy(gen_image_syn.detach())

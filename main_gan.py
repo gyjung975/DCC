@@ -20,32 +20,27 @@ def main():
     parser.add_argument('--lr_gen', type=float, default=0.0002)
     parser.add_argument('--lr_model', type=float, default=0.01)
 
-    parser.add_argument('--num_worker', type=int, default=0)
-    parser.add_argument('--method', type=str, default='DC')
     parser.add_argument('--dataset', type=str, default='CIFAR10')
     parser.add_argument('--model', type=str, default='ConvNet')
+    # parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
     parser.add_argument('--ipc', type=int, default=1, help='image(s) per class')
+    parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
+    parser.add_argument('--num_eval', type=int, default=20, help='the number of evaluating randomly initialized models')
+    parser.add_argument('--Iteration', type=int, default=1000, help='training iterations; 하나의 synthetic data *번 update')
+    parser.add_argument('--batch_train', type=int, default=256, help='batch size for training networks')
+    parser.add_argument('--epoch_eval_train', type=int, default=300,
+                        help='num_eval 마다의 train epoch')
     parser.add_argument('--eval_mode', type=str, default='S', help='eval_mode')
     # S: the same to training model, M: multi architectures,  W: net width, D: net depth,
     # A: activation function, P: pooling layer, N: normalization layer,
-    parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
-    parser.add_argument('--num_eval', type=int, default=20,
-                        help='the number of evaluating randomly initialized models')
-    parser.add_argument('--epoch_eval_train', type=int, default=300,
-                        help='num_eval 마다의 train epoch')
-    parser.add_argument('--Iteration', type=int, default=1000, help='training iterations; 하나의 synthetic data *번 update')
     parser.add_argument('--lr_img', type=float, default=0.1,
                         help='learning rate for updating synthetic images')
     parser.add_argument('--lr_net', type=float, default=0.01,
                         help='learning rate for updating network parameters')
-    parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
-    parser.add_argument('--batch_train', type=int, default=256, help='batch size for training networks')
-    parser.add_argument('--init', type=str, default='noise',
-                        help='noise/real: initialize synthetic images from random noise or randomly sampled real images.')
     parser.add_argument('--data_path', type=str, default='data', help='dataset path')
     parser.add_argument('--save_path', type=str, default='result', help='path to save results')
-    parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
 
+    parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--dsa_strategy', type=str, default='None', help='differentiable Siamese augmentation strategy')
     args = parser.parse_args()
 
@@ -60,14 +55,14 @@ def main():
         os.mkdir(args.save_path)
 
     eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
-    # The list of iterations when we evaluate models and record results.
     print('eval_it_pool: ', eval_it_pool)
 
     channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.dataset,
                                                                                                          args.data_path,
                                                                                                          args)
+    args.batch_real = args.ipc
+
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
-    # gen synthetic data로 train하고 eval할 model
 
     accs_all_exps = dict()
     for key in model_eval_pool:
@@ -81,8 +76,6 @@ def main():
         print('Evaluation model pool: ', model_eval_pool)
 
         ''' organize the real dataset '''
-        # images_all = []
-        # labels_all = []
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
 
@@ -108,8 +101,6 @@ def main():
         ''' initialize the synthetic data  -->  latent vector '''
         image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
                                 dtype=torch.float, requires_grad=True, device=args.device)
-        # label_syn = torch.tensor([np.ones(args.ipc) * i for i in range(num_classes)],
-        #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         ## [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
@@ -122,20 +113,17 @@ def main():
         #
         # generator = Generator(args).to(args.device)
         # optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
+        # optimizer_gen.zero_grad()
         ######################################################################################
 
-        if args.init == 'real':
-            print('initialize synthetic data from random real images')
-            for c in range(num_classes):
-                image_syn.data[c * args.ipc:(c+1) * args.ipc] = get_images(c, args.ipc).detach().data
-        else:
-            print('initialize synthetic data from random noise')
+        print('initialize synthetic data from random noise')
 
         ''' training '''
         optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
         optimizer_img.zero_grad()
 
         criterion = nn.CrossEntropyLoss().to(args.device)
+        criterion_mse = nn.MSELoss().to(args.device)
         print('%s training begins' % get_time())
 
         for it in range(args.Iteration+1):
@@ -152,6 +140,7 @@ def main():
 
                     if args.dc_aug_param['strategy'] != 'none':
                         args.epoch_eval_train = 1000  # Training with data augmentation needs more epochs.
+                        # args.epoch_eval_train = 1
                     else:
                         args.epoch_eval_train = 300
 
@@ -163,10 +152,14 @@ def main():
                         label_syn_eval = copy.deepcopy(label_syn.detach())
 
                         ###############################################
+                        # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                        #                         dtype=torch.float, requires_grad=False, device=args.device)
+                        #
                         # generator.eval()
-                        # with torch.no_grad():
-                        #     image_syn_eval = generator(image_syn)
-                        #     label_syn_eval = copy.deepcopy(label_syn)
+                        # gen_image_syn = generator(image_syn)
+                        #
+                        # image_syn_eval = copy.deepcopy(gen_image_syn.detach())
+                        # label_syn_eval = copy.deepcopy(label_syn.detach())
                         ###############################################
 
                         _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
