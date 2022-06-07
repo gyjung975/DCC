@@ -286,8 +286,10 @@ def get_loops(ipc):
     elif ipc == 50:
         outer_loop, inner_loop = 50, 10
     else:
-        outer_loop, inner_loop = 0, 0
-        exit('loop hyper-parameters are not defined for %d ipc'%ipc)
+        outer_loop, inner_loop = 100, 20
+    # else:
+    #     outer_loop, inner_loop = 0, 0
+    #     exit('loop hyper-parameters are not defined for %d ipc' % ipc)
     return outer_loop, inner_loop
 
 
