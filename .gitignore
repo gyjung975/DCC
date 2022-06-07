@@ -1,6 +1,6 @@
-pra.py
 result/
-__pycache__
+__pycache__/
+pra.py
 *.pth
 .idea/
 data/
