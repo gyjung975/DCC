@@ -150,10 +150,10 @@ def main():
                     args.dc_aug_param = get_daparam(args.dataset, args.model, model_eval, args.ipc)
                     print('DC augmentation parameters: \n', args.dc_aug_param)
 
-                    if args.dc_aug_param['strategy'] != 'none':
-                        args.epoch_eval_train = 1000  # Training with data augmentation needs more epochs.
-                    else:
-                        args.epoch_eval_train = 300
+                    # if args.dc_aug_param['strategy'] != 'none':
+                    #     args.epoch_eval_train = 1000  # Training with data augmentation needs more epochs.
+                    # else:
+                    #     args.epoch_eval_train = 300
 
                     accs = []
                     for it_eval in range(args.num_eval):
