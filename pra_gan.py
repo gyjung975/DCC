@@ -26,6 +26,8 @@ def main():
     parser.add_argument('--num_eval', type=int, default=2)
     parser.add_argument('--Iteration', type=int, default=0)
     parser.add_argument('--dataset', type=str, default='MNIST')
+    parser.add_argument('--batch_real', type=int, default=256)
+
     parser.add_argument('--model', type=str, default='ConvNet')
     parser.add_argument('--batch_train', type=int, default=256)
     parser.add_argument('--epoch_eval_train', type=int, default=300)
@@ -33,6 +35,7 @@ def main():
     parser.add_argument('--lr_net', type=float, default=0.01)
     parser.add_argument('--data_path', type=str, default='data', help='dataset path')
     parser.add_argument('--save_path', type=str, default='result', help='path to save results')
+    parser.add_argument('--lr_img', type=float, default=0.1)
 
     parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
@@ -86,7 +89,6 @@ def main():
             idx_shuffle = np.random.permutation(indices_class[c])[:n]
             return images_all[idx_shuffle]
 
-
         for ch in range(channel):
             print('Real images : channel %d, mean = %.4f, std = %.4f' % (ch,
                                                                          torch.mean(images_all[:, ch]),
@@ -117,7 +119,7 @@ def main():
                                                                                  model_eval,
                                                                                  it))
                     args.dc_aug_param = get_daparam(args.dataset, args.model, model_eval, args.ipc)
-                    # print('DC augmentation parameters: \n', args.dc_aug_param)
+                    print('DC augmentation parameters: \n', args.dc_aug_param)
 
                     if args.dc_aug_param['strategy'] != 'none':
                         args.epoch_eval_train = 1000
@@ -182,6 +184,7 @@ def main():
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
             net.train()
 
+            net_parameters = list(net.parameters())
             optimizer_net = torch.optim.SGD(net.parameters(), lr=args.lr_net)
             optimizer_net.zero_grad()
 
@@ -225,8 +228,12 @@ def main():
                     # output_syn = model(img_syn)
 
                     loss_real = criterion(output_real, lab_real)
+
                     loss_syn = criterion(output_syn, lab_syn)
+
                     loss_mse = criterion_mse(output_syn, output_real)
+
+
                     loss += loss_mse + loss_syn
 
                 optimizer_gen.zero_grad()
