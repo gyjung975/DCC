@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, \
     match_loss, get_time, TensorDataset, epoch
@@ -20,29 +21,24 @@ def main():
     parser.add_argument('--lr_gen', type=float, default=0.0002)
     parser.add_argument('--lr_model', type=float, default=0.01)
 
-    parser.add_argument('--dataset', type=str, default='CIFAR10')
-    parser.add_argument('--model', type=str, default='ConvNet')
-    parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
     parser.add_argument('--ipc', type=int, default=1, help='image(s) per class')
     parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
     parser.add_argument('--num_eval', type=int, default=20, help='the number of evaluating randomly initialized models')
     parser.add_argument('--Iteration', type=int, default=1000, help='training iterations; 하나의 synthetic data *번 update')
+    parser.add_argument('--dataset', type=str, default='CIFAR10')
+    parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
+
+    parser.add_argument('--model', type=str, default='ConvNet')
     parser.add_argument('--batch_train', type=int, default=256, help='batch size for training networks')
-    parser.add_argument('--epoch_eval_train', type=int, default=300,
-                        help='num_eval 마다의 train epoch')
+    parser.add_argument('--epoch_eval_train', type=int, default=300)
     parser.add_argument('--eval_mode', type=str, default='S', help='eval_mode')
-    # S: the same to training model, M: multi architectures,  W: net width, D: net depth,
-    # A: activation function, P: pooling layer, N: normalization layer,
-    parser.add_argument('--lr_img', type=float, default=0.1,
-                        help='learning rate for updating synthetic images')
-    parser.add_argument('--lr_net', type=float, default=0.01,
-                        help='learning rate for updating network parameters')
+    parser.add_argument('--lr_net', type=float, default=0.01)
     parser.add_argument('--data_path', type=str, default='data', help='dataset path')
     parser.add_argument('--save_path', type=str, default='result', help='path to save results')
+    parser.add_argument('--lr_img', type=float, default=0.1)
 
     parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
-    parser.add_argument('--dsa_strategy', type=str, default='None', help='differentiable Siamese augmentation strategy')
     args = parser.parse_args()
 
     args.outer_loop, args.inner_loop = get_loops(args.ipc)
@@ -76,7 +72,6 @@ def main():
         print('Hyper-parameters: \n', args.__dict__)
         print('Evaluation model pool: ', model_eval_pool)
 
-        ''' organize the real dataset '''
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
 
@@ -99,33 +94,30 @@ def main():
                                                                        torch.mean(images_all[:, ch]),
                                                                        torch.std(images_all[:, ch])))
 
-        ''' initialize the synthetic data  -->  latent vector '''
+        print('initialize synthetic data from random noise')
+
         image_syn = torch.randn(size=(num_classes * args.ipc, channel, im_size[0], im_size[1]),
                                 dtype=torch.float, requires_grad=True, device=args.device)
         label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
-        ## [num_class * ipc] : [0,0, ..., 1,1, ..., 9,9]
 
         ######################################################################################
-        # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-        #                         dtype=torch.float, requires_grad=False, device=args.device)
+        # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+        #                             dtype=torch.float, requires_grad=False, device=args.device)
         # label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
         #                          dtype=torch.long, requires_grad=False, device=args.device).view(-1)
         #
-        # generator = Generator(args).to(args.device)
+        # generator = Generator(args, img_shape).to(args.device)
         # optimizer_gen = torch.optim.SGD(generator.parameters(), lr=args.lr_gen, momentum=0.5)
         # optimizer_gen.zero_grad()
         ######################################################################################
 
-        print('initialize synthetic data from random noise')
-
-        ''' training '''
         optimizer_img = torch.optim.SGD([image_syn, ], lr=args.lr_img, momentum=0.5)
         optimizer_img.zero_grad()
 
         criterion = nn.CrossEntropyLoss().to(args.device)
         criterion_mse = nn.MSELoss().to(args.device)
-        print('%s training begins' % get_time())
+        print('%s TRAINING BEGINS' % get_time())
 
         for it in range(args.Iteration+1):
             ''' Evaluate synthetic data  -->  Generator '''
@@ -140,8 +132,7 @@ def main():
                     print('DC augmentation parameters: \n', args.dc_aug_param)
 
                     if args.dc_aug_param['strategy'] != 'none':
-                        args.epoch_eval_train = 1000  # Training with data augmentation needs more epochs.
-                        # args.epoch_eval_train = 1
+                        args.epoch_eval_train = 1000
                     else:
                         args.epoch_eval_train = 300
 
@@ -153,13 +144,11 @@ def main():
                         label_syn_eval = copy.deepcopy(label_syn.detach())
 
                         ###############################################
-                        # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                        #                         dtype=torch.float, requires_grad=False, device=args.device)
-                        #
                         # generator.eval()
-                        # gen_image_syn = generator(image_syn)
-                        #
-                        # image_syn_eval = copy.deepcopy(gen_image_syn.detach())
+
+                        # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                        #                             dtype=torch.float, requires_grad=False, device=args.device)
+                        # image_syn_eval = generator(latent_vector).detach()
                         # label_syn_eval = copy.deepcopy(label_syn.detach())
                         ###############################################
 
@@ -176,7 +165,6 @@ def main():
                     if it == args.Iteration:        # record the final results
                         accs_all_exps[model_eval] += accs
 
-                ''' visualize and save '''
                 args.model_path = os.path.join(args.save_path, 'main_gan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
                                                                                                       args.model,
                                                                                                       args.ipc,
@@ -188,6 +176,8 @@ def main():
                 save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (exp, it))
 
                 image_syn_vis = copy.deepcopy(image_syn.detach().cpu())     # [num_class * ipc, channel, H, W]
+                # image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                #                                       dtype=torch.float, device=args.device).detach()).cpu()
 
                 for ch in range(channel):
                     image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
@@ -195,10 +185,8 @@ def main():
                 image_syn_vis[image_syn_vis < 0] = 0.0
                 image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
-                # Trying normalize = True/False may get better visual effects.
 
             ''' Train synthetic data  -->  Generator'''
-            ######################################################################
             # model = models.resnet34(pretrained=False)
             # num_features = model.fc.in_features
             # model.fc = nn.Linear(num_features, num_classes)
@@ -208,7 +196,6 @@ def main():
             # optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
 
             # generator.train()
-            #######################################################################
 
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
             net.train()
@@ -244,78 +231,62 @@ def main():
                             module.eval()           # fix mu and sigma of every BatchNorm layer
 
                 ''' update synthetic data  -->  Generator '''
-                loss = torch.tensor(0.0).to(args.device)
+                ### outer loop 밖?? 안??? ###
+                # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                #                             dtype=torch.float, device=args.device)
+                # gen_img_syn = generator(latent_vector)
 
+                loss = torch.tensor(0.0).to(args.device)
                 for c in range(num_classes):
                     img_real = get_images(c, args.batch_real)
                     lab_real = torch.ones((img_real.shape[0],), device=args.device, dtype=torch.long) * c
 
-                    ##################################################################################################
-                    # gen_image_syn = generator(image_syn)
                     # img_syn = gen_image_syn[c * args.ipc:(c + 1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
                     # lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
-                    ##################################################################################################
 
                     img_syn = image_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
                     lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
-
-                    ##############################
                     # output_real = model(img_real)
-                    ##############################
+                    output_syn = net(img_syn)
+                    # output_syn = model(img_syn)
 
                     loss_real = criterion(output_real, lab_real)
+                    loss_syn = criterion(output_syn, lab_syn)
 
                     gw_real = torch.autograd.grad(loss_real, net_parameters)
                     gw_real = list((_.detach().clone() for _ in gw_real))
-
-                    output_syn = net(img_syn)
-
-                    ############################
-                    # output_syn = model(img_syn)
-                    ############################
-
-                    loss_syn = criterion(output_syn, lab_syn)
-
-                    ###################################################
-                    # loss_sim = torch.multiply(output_syn, output_real).sum()
-                    # sm = nn.Softmax(dim=1)
-                    # loss_sim = torch.multiply(sm(output_syn), sm(output_real)).sum()
-                    # loss_syn = criterion(output_syn, lab_syn)
-                    ###################################################
 
                     gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
 
                     loss += match_loss(gw_syn, gw_real, args)
 
-                    #############################
-                    # loss += -loss_sim + loss_syn
-                    #############################
+                    # loss_real = criterion(output_real, lab_real)
+                    # loss_syn = criterion(output_syn, lab_syn)
+                    # loss_mse = criterion_mse(output_syn, output_real)
+                    # loss += loss_mse + loss_syn
 
                 optimizer_img.zero_grad()
                 loss.backward()
                 optimizer_img.step()
 
-                ##########################
                 # optimizer_gen.zero_grad()
                 # loss.backward()
                 # optimizer_gen.step()
-                ###########################
 
                 loss_avg += loss.item()
 
-                if ol == args.outer_loop - 1:
-                    break
+                # if ol == args.outer_loop - 1:
+                #     break
 
                 ''' update network '''
                 image_syn_train = copy.deepcopy(image_syn.detach())
                 label_syn_train = copy.deepcopy(label_syn.detach())
 
-                #############################################
-                # image_syn_train = generator(image_syn)
-                # label_syn_train = copy.deepcopy(label_syn)
-                #############################################
+                ## image_syn_train = generator(latent_vector).detach()
+                # image_syn_train = copy.deepcopy(gen_img_syn.detach())
+                # label_syn_train = copy.deepcopy(label_syn.detach())
 
                 dst_syn_train = TensorDataset(image_syn_train, label_syn_train)
                 trainloader = torch.utils.data.DataLoader(dst_syn_train, batch_size=args.batch_train,
@@ -323,10 +294,7 @@ def main():
 
                 for il in range(args.inner_loop):
                     epoch('train', trainloader, net, optimizer_net, criterion, args, aug=False)
-
-                    ################################################################################
                     # epoch('train', trainloader, model, optimizer_model, criterion, args, aug=False)
-                    #################################################################################
 
             loss_avg /= (num_classes * args.outer_loop)
 
@@ -337,10 +305,7 @@ def main():
                 data_save.append([copy.deepcopy(image_syn.detach().cpu()), copy.deepcopy(label_syn.detach().cpu())])
                 torch.save({'data': data_save, 'accs_all_exps': accs_all_exps, },
                            os.path.join(args.model_path, 'model.pt'))
-
-                #####################################################################################
                 # torch.save(generator.state_dict(), os.path.join(args.model_path, 'generator.t7'))
-                ######################################################################################
 
     print('\n==================== Final Results ====================\n')
 

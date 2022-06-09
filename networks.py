@@ -12,16 +12,14 @@ class Swish(nn.Module):     # Swish(x) = x∗σ(x)
         return input * torch.sigmoid(input)
 
 
-# input z : [batch_size, latent_dim]
-# generator(z) : [batch_size, channel, H, W]
-
 # input z : [num_classes * ipc, latent_dim]
 # generator(z) : [num_classes * ipc, channel, H, W]
 
 class Generator(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, img_shape):
         super(Generator, self).__init__()
         self.args = args
+        self.img_shape = img_shape
 
         def block(in_dim, out_dim, normalize=True):
             layers = [nn.Linear(in_dim, out_dim)]
@@ -35,14 +33,14 @@ class Generator(nn.Module):
             *block(128, 256),
             *block(256, 512),
             *block(512, 1024),
-            # nn.Linear(1024, int(np.prod(img_shape))),
-            nn.Linear(1024, 1*28*28),
+            nn.Linear(1024, int(np.prod(self.img_shape))),
+            # nn.Linear(1024, 1*28*28),
             nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
-        # img = img.view(img.size(0), *img_shape)
-        img = img.view(img.size(0), 1, 28, 28)
+        img = img.view(img.size(0), *self.img_shape)
+        # img = img.view(img.size(0), 1, 28, 28)
         return img
 
 

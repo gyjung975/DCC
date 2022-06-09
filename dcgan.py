@@ -45,6 +45,11 @@ def main():
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.dsa = False
 
+    if (args.dataset == 'MNIST') or (args.dataset == 'FashionMNIST'):
+        img_shape = (1, 28, 28)
+    else:
+        img_shape = (3, 32, 32)
+
     if not os.path.exists(args.data_path):
         os.mkdir(args.data_path)
 
@@ -101,7 +106,7 @@ def main():
         label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
 
-        generator = Generator(args).to(args.device)
+        generator = Generator(args, img_shape).to(args.device)
         optimizer_gen = torch.optim.Adam(generator.parameters(), lr=args.lr_gen, weight_decay=0.2)
         optimizer_gen.zero_grad()
 
@@ -150,24 +155,24 @@ def main():
                     if it == args.Iteration:
                         accs_all_exps[model_eval] += accs
 
-                args.model_path = os.path.join(args.save_path, 'gan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
-                                                                                                      args.model,
-                                                                                                      args.ipc,
-                                                                                                      args.num_exp,
-                                                                                                      args.Iteration))
+                args.model_path = os.path.join(args.save_path, 'ndcgan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
+                                                                                                   args.model,
+                                                                                                   args.ipc,
+                                                                                                   args.num_exp,
+                                                                                                   args.Iteration))
                 if not os.path.exists(args.model_path):
                     os.mkdir(args.model_path)
                 save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (exp, it))
 
-                image_syn_vis = copy.deepcopy(image_syn_eval).cpu()
-                # image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                #                                       dtype=torch.float, device=args.device).detach()).cpu()
+                # image_syn_vis = copy.deepcopy(image_syn_eval).cpu()
+                image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                                      dtype=torch.float, device=args.device).detach()).cpu()
 
-                for ch in range(channel):
-                    image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
-
-                image_syn_vis[image_syn_vis < 0] = 0.0
-                image_syn_vis[image_syn_vis > 1] = 1.0
+                # for ch in range(channel):
+                #     image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
+                #
+                # image_syn_vis[image_syn_vis < 0] = 0.0
+                # image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
 
             ''' Train synthetic data  -->  Generator'''
