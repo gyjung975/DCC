@@ -155,11 +155,11 @@ def main():
                     if it == args.Iteration:
                         accs_all_exps[model_eval] += accs
 
-                args.model_path = os.path.join(args.save_path, 'ndcgan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
-                                                                                                   args.model,
-                                                                                                   args.ipc,
-                                                                                                   args.num_exp,
-                                                                                                   args.Iteration))
+                args.model_path = os.path.join(args.save_path, '0dcgan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
+                                                                                                    args.model,
+                                                                                                    args.ipc,
+                                                                                                    args.num_exp,
+                                                                                                    args.Iteration))
                 if not os.path.exists(args.model_path):
                     os.mkdir(args.model_path)
                 save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (exp, it))
@@ -168,11 +168,11 @@ def main():
                 image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
                                                       dtype=torch.float, device=args.device).detach()).cpu()
 
-                # for ch in range(channel):
-                #     image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
-                #
-                # image_syn_vis[image_syn_vis < 0] = 0.0
-                # image_syn_vis[image_syn_vis > 1] = 1.0
+                for ch in range(channel):
+                    image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
+
+                image_syn_vis[image_syn_vis < 0] = 0.0
+                image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
 
             ''' Train synthetic data  -->  Generator'''

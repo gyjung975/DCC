@@ -15,33 +15,82 @@ class Swish(nn.Module):     # Swish(x) = x∗σ(x)
 # input z : [num_classes * ipc, latent_dim]
 # generator(z) : [num_classes * ipc, channel, H, W]
 
+# class Generator(nn.Module):
+#     def __init__(self, args, img_shape):
+#         super(Generator, self).__init__()
+#         self.args = args
+#         self.img_shape = img_shape
+#
+#         def block(in_dim, out_dim, normalize=False):
+#             layers = [nn.Linear(in_dim, out_dim)]
+#             if normalize:
+#                 layers.append(nn.BatchNorm1d(out_dim, 0.8))
+#             layers.append(nn.LeakyReLU(0.2, inplace=True))
+#             return layers
+#
+#         self.model = nn.Sequential(
+#             *block(args.latent_dim, 128, normalize=False),
+#             *block(128, 256),
+#             *block(256, 512),
+#             *block(512, 1024),
+#             nn.Linear(1024, int(np.prod(self.img_shape))),
+#             # nn.Linear(1024, 1*28*28),
+#             nn.Tanh())
+#
+#     def forward(self, z):
+#         img = self.model(z)
+#         img = img.view(img.size(0), *self.img_shape)
+#         # img = img.view(img.size(0), 1, 28, 28)
+#         return img
+
+
 class Generator(nn.Module):
     def __init__(self, args, img_shape):
         super(Generator, self).__init__()
         self.args = args
         self.img_shape = img_shape
+        self.init_size = self.img_shape[1] // 4
+        self.l1 = nn.Sequential(
+            nn.Linear(args.latent_dim, 128 * self.init_size ** 2))
 
-        def block(in_dim, out_dim, normalize=True):
-            layers = [nn.Linear(in_dim, out_dim)]
-            if normalize:
-                layers.append(nn.BatchNorm1d(out_dim, 0.8))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-
-        self.model = nn.Sequential(
-            *block(args.latent_dim, 128, normalize=False),
-            *block(128, 256),
-            *block(256, 512),
-            *block(512, 1024),
-            nn.Linear(1024, int(np.prod(self.img_shape))),
-            # nn.Linear(1024, 1*28*28),
-            nn.Tanh())
+        self.conv_blocks = nn.Sequential(
+            nn.BatchNorm2d(128),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 128, 3, stride=1, padding=1),
+            nn.BatchNorm2d(128, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 64, 3, stride=1, padding=1),
+            nn.BatchNorm2d(64, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, self.img_shape[0], 3, stride=1, padding=1),
+            nn.Tanh(),
+        )
 
     def forward(self, z):
-        img = self.model(z)
-        img = img.view(img.size(0), *self.img_shape)
-        # img = img.view(img.size(0), 1, 28, 28)
+        out = self.l1(z)
+        out = out.view(out.shape[0], 128, self.init_size, self.init_size)
+        img = self.conv_blocks(out)
         return img
+
+
+class Discriminator(nn.Module):
+    def __init__(self, args, img_shape):
+        super(Discriminator, self).__init__()
+        self.args = args
+        self.img_shape = img_shape
+
+        self.model = nn.Sequential(nn.Linear(int(np.prod(self.img_shape)), 512),
+                                   nn.LeakyReLU(0.2, inplace=True),
+                                   nn.Linear(512, 256),
+                                   nn.LeakyReLU(0.2, inplace=True),
+                                   nn.Linear(256, 1),
+                                   nn.Sigmoid())
+
+    def forward(self, img):
+        flattened = img.view(img.size(0), -1)
+        output = self.model(flattened)
+        return output
 
 
 class MLP(nn.Module):
