@@ -39,12 +39,11 @@ from torchvision.utils import save_image
 
 
 class Generator(nn.Module):
-    def __init__(self, args):
+    def __init__(self):
         super(Generator, self).__init__()
-        self.args = args
-        self.init_size = img_shape[1] // 4
-        self.l1 = nn.Sequential(
-            nn.Linear(args.latent_dim, 128 * self.init_size ** 2))
+
+        self.init_size = args.img_size // 4
+        self.l1 = nn.Sequential(nn.Linear(args.latent_dim, 128 * self.init_size ** 2))
 
         self.conv_blocks = nn.Sequential(
             nn.BatchNorm2d(128),
@@ -67,29 +66,69 @@ class Generator(nn.Module):
         return img
 
 
-class Discriminator(nn.Module):
-    def __init__(self, args):
-        super(Discriminator, self).__init__()
-        self.args = args
+# class Discriminator(nn.Module):
+#     def __init__(self, args):
+#         super(Discriminator, self).__init__()
+#         self.args = args
+#
+#         self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
+#                                    nn.LeakyReLU(0.2, inplace=True),
+#                                    nn.Linear(512, 256),
+#                                    nn.LeakyReLU(0.2, inplace=True),
+#                                    nn.Linear(256, 1),
+#                                    nn.Sigmoid())
+#
+#     def forward(self, img):
+#         flattened = img.view(img.size(0), -1)
+#         output = self.model(flattened)
+#         return output
 
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-                                   nn.LeakyReLU(0.2, inplace=True),
-                                   nn.Linear(512, 256),
-                                   nn.LeakyReLU(0.2, inplace=True),
-                                   nn.Linear(256, 1),
-                                   nn.Sigmoid())
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, bn=True):
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1),
+                     nn.LeakyReLU(0.2, inplace=True),
+                     nn.Dropout2d(0.25)]
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+
+        self.model = nn.Sequential(
+            *discriminator_block(img_shape[0], 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+
+        # The height and width of downsampled image
+        ds_size = args.img_size // 2 ** 4
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1),
+                                       nn.Sigmoid())
 
     def forward(self, img):
-        flattened = img.view(img.size(0), -1)
-        output = self.model(flattened)
-        return output
+        out = self.model(img)
+        out = out.view(out.shape[0], -1)
+        validity = self.adv_layer(out)
+        return validity
+
+
+def weights_init_normal(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1:
+        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find("BatchNorm2d") != -1:
+        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+        torch.nn.init.constant_(m.bias.data, 0.0)
 
 
 def _init_():
     if not os.path.exists('outputs'):
         os.makedirs('outputs')
-    if not os.path.exists('outputs/' + args.exp_name):
-        os.makedirs('outputs/' + args.exp_name)
+    if not os.path.exists('outputs/' + args.dataset):
+        os.makedirs('outputs/' + args.dataset)
 
 
 start_time = time.time()
@@ -97,6 +136,7 @@ start_time = time.time()
 
 def train(args):
     transform_train = transforms.Compose([transforms.ToTensor(),
+                                          transforms.Resize(32),
                                           transforms.Normalize([0.5], [0.5])])
     if args.dataset == 'MNIST':
         train_dataset = datasets.MNIST(root='./data', train=True, transform=transform_train)
@@ -106,8 +146,11 @@ def train(args):
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
     device = torch.device('cuda')
-    generator = Generator(args).to(device)
-    discriminator = Discriminator(args).to(device)
+    generator = Generator().to(device)
+    discriminator = Discriminator().to(device)
+
+    generator.apply(weights_init_normal)
+    discriminator.apply(weights_init_normal)
 
     criterion = nn.BCELoss().to(device)
     optimizer_G = optim.Adam(generator.parameters(), lr=args.lr, betas=(0.5, 0.999))
@@ -124,9 +167,9 @@ def train(args):
         for i, (imgs, _) in enumerate(train_loader):
             real_imgs = imgs.to(device)
 
-            with torch.no_grad():
-                real_label = torch.FloatTensor(imgs.size(0), 1).fill_(1.0).to(device)
-                fake_label = torch.FloatTensor(imgs.size(0), 1).fill_(0.0).to(device)
+            # with torch.no_grad():
+            real_label = torch.FloatTensor(imgs.size(0), 1).fill_(1.0).to(device)
+            fake_label = torch.FloatTensor(imgs.size(0), 1).fill_(0.0).to(device)
 
             z = torch.FloatTensor(np.random.normal(0, 1, (imgs.shape[0], args.latent_dim))).to(device)
             # z = torch.normal(mean=0, std=1, size=(imgs.shape[0], args.latent_dim)).to(device)
@@ -150,32 +193,32 @@ def train(args):
 
             done = epoch * len(train_loader) + i
             if done % args.sample_interval == 0:
-                save_image(gen_imgs.data[:25], "outputs/%s/%d.png" % (args.exp_name,
+                save_image(gen_imgs.data[:25], "outputs/%s/%d.png" % (args.dataset,
                                                                       done / args.sample_interval),
                            nrow=5, normalize=True)
         g_loss /= len(train_loader.dataset)
         d_loss /= len(train_loader.dataset)
         gen_acc = 100 * count / len(train_loader.dataset)
-        print("[Epoch %d/%d] [D loss: %f] [G loss: %f] [G axx: %.2f] [time: %f]" % (epoch + 1,
+        print("[Epoch %d/%d] [D loss: %f] [G loss: %f] [G acc: %.2f] [time: %f]" % (epoch + 1,
                                                                                     args.epochs,
                                                                                     d_loss.item(),
                                                                                     g_loss.item(),
                                                                                     gen_acc,
                                                                                     time.time() - start_time))
-        # if gen_acc >= best_acc:
-        #     best_acc = gen_acc
-        #     torch.save(generator.state_dict(), 'outputs/%s/gen_model.t7' % (args.exp_name))
-        #     torch.save(discriminator.state_dict(), 'outputs/%s/dis_model.t7' % (args.exp_name))
+    # if gen_acc >= best_acc:
+    best_acc = gen_acc
+    torch.save(generator.state_dict(), 'outputs/%s/%s_gen_model.t7' % (args.dataset, args.dataset))
+    torch.save(discriminator.state_dict(), 'outputs/%s/%s_dis_model.t7' % (args.dataset, args.dataset))
 
 
 def test(args):
     device = torch.device('cuda')
 
-    generator = Generator(args).to(device)
-    generator.load_state_dict(torch.load(os.path.join(args.model_path, 'gen_model.t7')))
+    generator = Generator().to(device)
+    generator.load_state_dict(torch.load(os.path.join(args.model_path, 'MNIST_gen_model.t7')))
 
-    discriminator = Discriminator(args).to(device)
-    discriminator.load_state_dict(torch.load(os.path.join(args.model_path, 'dis_model.t7')))
+    discriminator = Discriminator().to(device)
+    discriminator.load_state_dict(torch.load(os.path.join(args.model_path, 'MNIST_dis_model.t7')))
 
     generator.eval()
     discriminator.eval()
@@ -188,24 +231,24 @@ def test(args):
     fake = (discriminator(gen_imgs.detach()) >= 0.5).sum()
     fake_acc = 100 * fake / args.num_img
 
-    save_image(gen_imgs, "%s/%s.png" % (args.model_path, args.exp_name), nrow=5, normalize=True)
+    save_image(gen_imgs, "%s/%s.png" % (args.model_path, args.dataset), nrow=5, normalize=True)
     print(discriminator(gen_imgs.detach()) >= 0.5)
     print("Fake acc: %.2f" % fake_acc)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp_name', type=str, default='gan')
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=0.0002)
     parser.add_argument('--latent_dim', type=int, default=100)
     parser.add_argument('--dataset', type=str, default='MNIST',
                         choices=['MNIST', 'CIFAR10'])
+    parser.add_argument('--img_size', type=int, default=32)
     parser.add_argument('--sample_interval', type=int, default=2000)
     parser.add_argument('--num_img', type=int, default=10)
     parser.add_argument('--eval', type=bool, default=False)
-    parser.add_argument('--model_path', type=str, default='')   # outputs/exp_name
+    parser.add_argument('--model_path', type=str, default='')   # outputs/dataset
     args = parser.parse_args()
     print(args)
 
