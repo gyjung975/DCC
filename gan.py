@@ -56,7 +56,7 @@ class Generator(nn.Module):
             nn.Conv2d(128, 64, 3, stride=1, padding=1),
             nn.BatchNorm2d(64, 0.8),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, self.img_shape[0], 3, stride=1, padding=1),
+            nn.Conv2d(64, img_shape[0], 3, stride=1, padding=1),
             nn.Tanh(),
         )
 
@@ -98,7 +98,7 @@ start_time = time.time()
 def train(args):
     transform_train = transforms.Compose([transforms.ToTensor(),
                                           transforms.Normalize([0.5], [0.5])])
-    if args.data == 'MNIST':
+    if args.dataset == 'MNIST':
         train_dataset = datasets.MNIST(root='./data', train=True, transform=transform_train)
     else:
         train_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=True, transform=transform_train)
@@ -211,7 +211,7 @@ if __name__ == "__main__":
 
     _init_()
 
-    if args.data == 'MNIST':
+    if args.dataset == 'MNIST':
         img_shape = (1, 28, 28)
     else:
         img_shape = (3, 32, 32)
