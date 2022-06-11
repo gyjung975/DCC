@@ -18,15 +18,15 @@ import torchvision.models as models
 def main():
     parser = argparse.ArgumentParser(description='Parameter DDGAN')
     parser.add_argument('--latent_dim', type=int, default=100)
-    parser.add_argument('--lr_gen', type=float, default=0.002)
-    parser.add_argument('--lr_model', type=float, default=0.01)
+    parser.add_argument('--lr_gen', type=float, default=0.0002)
 
     parser.add_argument('--ipc', type=int, default=1)
-    parser.add_argument('--num_exp', type=int, default=5)
-    parser.add_argument('--num_eval', type=int, default=20)
+    parser.add_argument('--num_exp', type=int, default=1)
+    parser.add_argument('--num_eval', type=int, default=2)
     parser.add_argument('--Iteration', type=int, default=1000)
     parser.add_argument('--dataset', type=str, default='MNIST')
     parser.add_argument('--batch_real', type=int, default=256)
+    parser.add_argument('--img_size', type=int, default=32)
 
     parser.add_argument('--model', type=str, default='ConvNet')
     parser.add_argument('--batch_train', type=int, default=256)
@@ -35,7 +35,6 @@ def main():
     parser.add_argument('--lr_net', type=float, default=0.01)
     parser.add_argument('--data_path', type=str, default='data', help='dataset path')
     parser.add_argument('--save_path', type=str, default='result', help='path to save results')
-    parser.add_argument('--lr_img', type=float, default=0.1)
 
     parser.add_argument('--num_worker', type=int, default=0)
     parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
@@ -49,6 +48,7 @@ def main():
         img_shape = (1, 28, 28)
     else:
         img_shape = (3, 32, 32)
+    print(img_shape)
 
     if not os.path.exists(args.data_path):
         os.mkdir(args.data_path)
@@ -56,7 +56,8 @@ def main():
     if not os.path.exists(args.save_path):
         os.mkdir(args.save_path)
 
-    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
+    eval_it_pool = np.arange(0, args.Iteration + 1,
+                             500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration]
     print('eval_it_pool: ', eval_it_pool)
 
     channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.dataset,
@@ -101,12 +102,16 @@ def main():
 
         print('\nInitialize latent vector from random noise')
 
-        # image_syn = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-        #                         dtype=torch.float, requires_grad=False, device=args.device)
+        # latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+        #                             dtype=torch.float, requires_grad=False, device=args.device)
         label_syn = torch.tensor(np.array([np.ones(args.ipc) * i for i in range(num_classes)]),
                                  dtype=torch.long, requires_grad=False, device=args.device).view(-1)
 
         generator = Generator(args, img_shape).to(args.device)
+        generator.load_state_dict(torch.load(os.path.join(args.save_path, '%s/%s_gen_model.t7' % (args.dataset,
+                                                                                                  args.dataset))))
+
+        gen_parameters = list(generator.parameters())
         optimizer_gen = torch.optim.Adam(generator.parameters(), lr=args.lr_gen, weight_decay=0.2)
         optimizer_gen.zero_grad()
 
@@ -114,8 +119,7 @@ def main():
         criterion_mse = nn.MSELoss().to(args.device)
         print('%s training begins' % get_time())
 
-        for it in range(args.Iteration+1):
-            ''' Evaluate '''
+        for it in range(args.Iteration + 1):
             if it in eval_it_pool:
                 for model_eval in model_eval_pool:
                     print('------------------------------------------------')
@@ -132,20 +136,21 @@ def main():
                         args.epoch_eval_train = 300
 
                     accs = []
-                    for it_eval in range(args.num_eval):
-                        net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
+                    # for it_eval in range(args.num_eval):
+                    it_eval = 0
+                    net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device)
 
-                        generator.eval()
+                    generator.eval()
 
-                        latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                                                    dtype=torch.float, requires_grad=False, device=args.device)
-                        image_syn_eval = generator(latent_vector).detach()
-                        label_syn_eval = copy.deepcopy(label_syn.detach())
+                    eval_latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                                     dtype=torch.float, requires_grad=False, device=args.device)
+                    image_syn_eval = generator(eval_latent_vector).detach()
+                    label_syn_eval = copy.deepcopy(label_syn.detach())
 
-                        _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
-                                                                 testloader, args)
+                    _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval,
+                                                             testloader, args)
 
-                        accs.append(acc_test)
+                    accs.append(acc_test)
                     print('Evaluate %d random %s, mean = %.4f std = %.4f' % (len(accs),
                                                                              model_eval,
                                                                              np.mean(accs),
@@ -155,18 +160,18 @@ def main():
                     if it == args.Iteration:
                         accs_all_exps[model_eval] += accs
 
-                args.model_path = os.path.join(args.save_path, '0dcgan_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
-                                                                                                    args.model,
-                                                                                                    args.ipc,
-                                                                                                    args.num_exp,
-                                                                                                    args.Iteration))
+                args.model_path = os.path.join(args.save_path, '0pra_%s_%s_%dipc_%dexp_%diter' % (args.dataset,
+                                                                                                  args.model,
+                                                                                                  args.ipc,
+                                                                                                  args.num_exp,
+                                                                                                  args.Iteration))
                 if not os.path.exists(args.model_path):
                     os.mkdir(args.model_path)
                 save_name = os.path.join(args.model_path, 'exp%d_iter%d.png' % (exp, it))
 
-                # image_syn_vis = copy.deepcopy(image_syn_eval).cpu()
-                image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                                                      dtype=torch.float, device=args.device).detach()).cpu()
+                image_syn_vis = copy.deepcopy(image_syn_eval).cpu()
+                # image_syn_vis = generator(torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                #                                       dtype=torch.float, device=args.device).detach()).cpu()
 
                 for ch in range(channel):
                     image_syn_vis[:, ch] = image_syn_vis[:, ch] * std[ch] + mean[ch]
@@ -174,21 +179,20 @@ def main():
                 image_syn_vis[image_syn_vis < 0] = 0.0
                 image_syn_vis[image_syn_vis > 1] = 1.0
                 save_image(image_syn_vis, save_name, nrow=args.ipc)
+                save_image(eval_latent_vector, os.path.join(args.model_path, 'latent_vector.png'), nrow=args.ipc)
 
             ''' Train synthetic data  -->  Generator'''
-            # model = models.resnet34(pretrained=False)
-            # num_features = model.fc.in_features
-            # model.fc = nn.Linear(num_features, num_classes)
-            # model = model.to(args.device)
-            #
-            # model.train()
-            # optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr_model)
 
             generator.train()
 
             net = get_network(args.model, channel, num_classes, im_size).to(args.device)
-            net.train()
 
+            # net = models.resnet34(pretrained=False)
+            # num_features = net.fc.in_features
+            # net.fc = nn.Linear(num_features, num_classes)
+            # net = net.to(args.device)
+
+            net.train()
             net_parameters = list(net.parameters())
             optimizer_net = torch.optim.SGD(net.parameters(), lr=args.lr_net)
             optimizer_net.zero_grad()
@@ -196,9 +200,14 @@ def main():
             loss_avg = 0
             args.dc_aug_param = None
 
+            ### outer loop 밖?? 안??? ###
+            train_latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                                              dtype=torch.float, device=args.device)
+            # gen_img_syn = generator(train_latent_vector)
+
             for ol in range(args.outer_loop):
                 BN_flag = False
-                BNSizePC = 16       # for batch normalization
+                BNSizePC = 16
 
                 for module in net.modules():
                     if 'BatchNorm' in module._get_name():
@@ -206,31 +215,31 @@ def main():
 
                 if BN_flag:
                     img_real = torch.cat([get_images(c, BNSizePC) for c in range(num_classes)], dim=0)
-                    net.train()                     # for updating the mu, sigma of BatchNorm
-                    output_real = net(img_real)     # get running mu, sigma
+                    net.train()  # for updating the mu, sigma of BatchNorm
+                    output_real = net(img_real)  # get running mu, sigma
 
                     for module in net.modules():
                         if 'BatchNorm' in module._get_name():
-                            module.eval()           # fix mu and sigma of every BatchNorm layer
+                            module.eval()  # fix mu and sigma of every BatchNorm layer
 
                 ''' update synthetic data  -->  Generator '''
                 ### outer loop 밖?? 안??? ###
-                latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
-                                            dtype=torch.float, device=args.device)
-                gen_img_syn = generator(latent_vector)
+                # train_latent_vector = torch.randn(size=(num_classes * args.ipc, args.latent_dim),
+                #                                   dtype=torch.float, device=args.device)
+                gen_img_syn = generator(train_latent_vector)
 
                 loss = torch.tensor(0.0).to(args.device)
+
                 for c in range(num_classes):
                     img_real = get_images(c, args.batch_real)
                     lab_real = torch.ones((img_real.shape[0],), device=args.device, dtype=torch.long) * c
 
-                    img_syn = gen_img_syn[c * args.ipc:(c+1) * args.ipc].reshape((args.ipc, channel, im_size[0], im_size[1]))
+                    img_syn = gen_img_syn[c * args.ipc:(c + 1) * args.ipc].reshape(
+                        (args.ipc, channel, args.img_size, args.img_size))
                     lab_syn = torch.ones((args.ipc,), device=args.device, dtype=torch.long) * c
 
                     output_real = net(img_real)
-                    # output_real = model(img_real)
                     output_syn = net(img_syn)
-                    # output_syn = model(img_syn)
 
                     loss_real = criterion(output_real, lab_real)
                     gw_real = torch.autograd.grad(loss_real, net_parameters)
@@ -258,7 +267,6 @@ def main():
 
                 for il in range(args.inner_loop):
                     epoch('train', trainloader, net, optimizer_net, criterion, args, aug=False)
-                    # epoch('train', trainloader, model, optimizer_model, criterion, args, aug=False)
 
             loss_avg /= (num_classes * args.outer_loop)
 
@@ -279,8 +287,10 @@ def main():
                                                                                                         args.model,
                                                                                                         len(accs),
                                                                                                         key,
-                                                                                                        np.mean(accs) * 100,
-                                                                                                        np.std(accs) * 100))
+                                                                                                        np.mean(
+                                                                                                            accs) * 100,
+                                                                                                        np.std(
+                                                                                                            accs) * 100))
 
 
 if __name__ == '__main__':

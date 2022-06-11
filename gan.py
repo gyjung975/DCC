@@ -10,6 +10,7 @@ from torchvision import datasets, transforms
 import torch.optim as optim
 import torchvision.models as models
 from torchvision.utils import save_image
+from utils import get_dataset
 
 
 # class Generator(nn.Module):
@@ -124,11 +125,31 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 
+dst_train = datasets.MNIST('data', train=True,
+                           transform=transforms.Compose([transforms.ToTensor(),
+                                                         transforms.Normalize(mean=[0.1307], std=[0.3081])]))
+
+images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
+labels_all = [dst_train[i][1] for i in range(len(dst_train))]
+
+images_all = torch.cat(images_all, dim=0).to(torch.device('cuda'))
+labels_all = torch.tensor(labels_all, dtype=torch.long, device=torch.device('cuda'))
+
+indices_class = [[] for c in range(10)]
+for i, lab in enumerate(labels_all):
+    indices_class[lab].append(i)
+
+
+def get_images(c, n):
+    idx_shuffle = np.random.permutation(indices_class[c])[:n]
+    return images_all[idx_shuffle]
+
+
 def _init_():
     if not os.path.exists('outputs'):
         os.makedirs('outputs')
-    if not os.path.exists('outputs/' + args.dataset):
-        os.makedirs('outputs/' + args.dataset)
+    if not os.path.exists('outputs/' + args.dataset + '_%d' % args.gen_class):
+        os.makedirs('outputs/' + args.dataset + '_%d' % args.gen_class)
 
 
 start_time = time.time()
@@ -143,7 +164,7 @@ def train(args):
     else:
         train_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=True, transform=transform_train)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     device = torch.device('cuda')
     generator = Generator().to(device)
@@ -166,8 +187,9 @@ def train(args):
 
         for i, (imgs, _) in enumerate(train_loader):
             real_imgs = imgs.to(device)
+            # real_imgs = get_images(args.gen_class, args.batch_size).to(device)
+            # class_label = torch.FloatTensor(imgs.size(0), 1).fill_(args.gen_class).to(device)
 
-            # with torch.no_grad():
             real_label = torch.FloatTensor(imgs.size(0), 1).fill_(1.0).to(device)
             fake_label = torch.FloatTensor(imgs.size(0), 1).fill_(0.0).to(device)
 
@@ -193,8 +215,8 @@ def train(args):
 
             done = epoch * len(train_loader) + i
             if done % args.sample_interval == 0:
-                save_image(gen_imgs.data[:25], "outputs/%s/%d.png" % (args.dataset,
-                                                                      done / args.sample_interval),
+                save_image(gen_imgs.data[:25], "outputs/%s_%d/%d.png" % (args.dataset, args.gen_class,
+                                                                         done / args.sample_interval),
                            nrow=5, normalize=True)
         g_loss /= len(train_loader.dataset)
         d_loss /= len(train_loader.dataset)
@@ -207,23 +229,27 @@ def train(args):
                                                                                     time.time() - start_time))
     # if gen_acc >= best_acc:
     best_acc = gen_acc
-    torch.save(generator.state_dict(), 'outputs/%s/%s_gen_model.t7' % (args.dataset, args.dataset))
-    torch.save(discriminator.state_dict(), 'outputs/%s/%s_dis_model.t7' % (args.dataset, args.dataset))
+    torch.save(generator.state_dict(), 'outputs/%s_%d/%s_gen_model.t7' % (args.dataset,
+                                                                          args.gen_class,
+                                                                          args.dataset))
+    torch.save(discriminator.state_dict(), 'outputs/%s_%d/%s_dis_model.t7' % (args.dataset,
+                                                                              args.gen_class,
+                                                                              args.dataset))
 
 
 def test(args):
     device = torch.device('cuda')
 
     generator = Generator().to(device)
-    generator.load_state_dict(torch.load(os.path.join(args.model_path, 'MNIST_gen_model.t7')))
+    generator.load_state_dict(torch.load(os.path.join(args.model_path, '%s_gen_model.t7' % args.dataset)))
 
     discriminator = Discriminator().to(device)
-    discriminator.load_state_dict(torch.load(os.path.join(args.model_path, 'MNIST_dis_model.t7')))
+    discriminator.load_state_dict(torch.load(os.path.join(args.model_path, '%s_dis_model.t7' % args.dataset)))
 
     generator.eval()
     discriminator.eval()
 
-    z = torch.FloatTensor(np.random.normal(0, 1, (args.num_imgs, args.latent_dim))).to(device)
+    z = torch.FloatTensor(np.random.normal(0, 1, (args.num_img, args.latent_dim))).to(device)
     # z = torch.normal(mean=0, std=1, size=(args.num_imgs, args.latent_dim)).to(device)
 
     gen_imgs = generator(z)
@@ -232,7 +258,7 @@ def test(args):
     fake_acc = 100 * fake / args.num_img
 
     save_image(gen_imgs, "%s/%s.png" % (args.model_path, args.dataset), nrow=5, normalize=True)
-    print(discriminator(gen_imgs.detach()) >= 0.5)
+    # print(discriminator(gen_imgs.detach()) >= 0.5)
     print("Fake acc: %.2f" % fake_acc)
 
 
@@ -244,6 +270,7 @@ if __name__ == "__main__":
     parser.add_argument('--latent_dim', type=int, default=100)
     parser.add_argument('--dataset', type=str, default='MNIST',
                         choices=['MNIST', 'CIFAR10'])
+    parser.add_argument('--gen_class', type=int, default=0)
     parser.add_argument('--img_size', type=int, default=32)
     parser.add_argument('--sample_interval', type=int, default=2000)
     parser.add_argument('--num_img', type=int, default=10)
